@@ -1,0 +1,5 @@
+jieba>=0.42.1
+numpy>=2.0
+scikit-learn>=1.5
+sentence-transformers>=3.0
+

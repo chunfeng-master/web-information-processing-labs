@@ -1,0 +1,23 @@
+# Python 运行缓存和本地环境
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# 课程原始数据集：体积较大，可按实验说明另行获取
+lab*/Qilin-IR-50K/
+lab*/Qilin-IR-50K.rar
+
+# 可由程序重新生成的大型结果文件
+lab*/outputs/*.sqlite
+lab*/outputs/*.jsonl
+lab*/outputs/*.jsonl.gz
+
+# 保留 outputs/README.md 和 results.json 作为实验结果说明
+
+# 编辑器与系统临时文件
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

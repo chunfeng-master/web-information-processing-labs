@@ -1,0 +1,12 @@
+{
+  "seed": 2025,
+  "films": 1600,
+  "entities": 4551,
+  "relations": 38,
+  "triples": 9058,
+  "splits": {
+    "train": 7248,
+    "valid": 905,
+    "test": 905
+  }
+}

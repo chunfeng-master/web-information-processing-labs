@@ -1,23 +1,71 @@
-"""课程 TransE 实验的命令行参数，默认值对应报告中的 CPU 实验。"""
 import argparse
-import ast
 from pathlib import Path
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="TransE 尾实体预测")
-    parser.add_argument("--data_dir", default=str(Path(__file__).resolve().parents[1] / "data"))
-    parser.add_argument("--data_name", default="freebase")
-    parser.add_argument("--seed", type=int, default=2025)
-    parser.add_argument("--embed_dim", type=int, default=32)
-    parser.add_argument("--relation_dim", type=int, default=32)
-    parser.add_argument("--KG_embedding_type", choices=["TransE"], default="TransE")
-    parser.add_argument("--kg_l2loss_lambda", type=float, default=1e-4)
-    parser.add_argument("--kg_batch_size", type=int, default=2048)
-    parser.add_argument("--test_batch_size", type=int, default=64)
-    parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--n_epoch", type=int, default=40)
-    parser.add_argument("--evaluate_every", type=int, default=5)
-    parser.add_argument("--Ks", type=ast.literal_eval, default=[5, 10])
-    parser.add_argument("--checkpoint", type=Path, help="保存最佳基础模型的位置")
-    return parser.parse_args()
+    parser = argparse.ArgumentParser(description="Run TransE Model for KG Link Prediction.")
+
+    parser.add_argument('--seed', type=int, default=2025,
+                        help='Random seed.')
+
+    parser.add_argument('--data_name', nargs='?', default='freebase',
+                        help='Choose a dataset')
+    parser.add_argument('--data_dir', nargs='?', default=str(Path(__file__).resolve().parents[1] / 'data'),
+                        help='Input data path.')
+
+    parser.add_argument("--cuda", nargs='?', const='true', choices=['true', 'false'], type=str.lower, default='false',
+                        help="whether to use GPU (True/False)")
+    parser.add_argument("--gpu_id", type=int, default=0,
+                        help="gpu id")
+
+    parser.add_argument('--use_pretrain', type=int, default=0,
+                        help='0: No pretrain, 1: Pretrain with stored model.')
+    parser.add_argument('--pretrain_model_path', nargs='?', default='trained_model/Embedding_based.pth',
+                        help='Path of stored model.')
+
+    parser.add_argument('--kg_batch_size', type=int, default=2048,
+                        help='KG train batch size.')
+    parser.add_argument('--test_batch_size', type=int, default=128,
+                        help='Test batch size (the number of samples to test every batch).')
+
+    parser.add_argument('--embed_dim', type=int, default=32,
+                        help='entity Embedding size.')
+    parser.add_argument('--relation_dim', type=int, default=32,
+                        help='Relation Embedding size.')
+
+    parser.add_argument('--KG_embedding_type', choices=['TransE'], default='TransE',
+                        help='Knowledge graph embedding model.')
+
+    parser.add_argument('--kg_l2loss_lambda', type=float, default=1e-4,
+                        help='Lambda when calculating KG l2 loss.')
+
+    parser.add_argument('--lr', type=float, default=1e-3,
+                        help='Learning rate.')
+    parser.add_argument('--n_epoch', type=int, default=80,
+                        help='Number of epoch.')
+    parser.add_argument('--stopping_steps', type=int, default=10,
+                        help='Number of evaluation nums for early stopping')
+
+    parser.add_argument('--print_every', type=int, default=1000,
+                        help='Iter interval of printing loss.')
+    parser.add_argument('--evaluate_every', type=int, default=10,
+                        help='Epoch interval of evaluating.')
+
+    parser.add_argument('--Ks', nargs='?', default='[1, 3, 5, 10]',
+                        help='Calculate metric@K when evaluating.')
+
+    parser.add_argument('--mode', choices=['train', 'test', 'fusion'], default='train')
+    parser.add_argument('--positive_sampling', choices=['head', 'edge'], default='edge')
+    parser.add_argument('--relation_negative', type=float, default=0.5,
+                        help='Probability of drawing a tail from the training relation pool.')
+    parser.add_argument('--save_dir', help='Directory for checkpoints and validation metrics.')
+    args = parser.parse_args()
+    args.cuda = args.cuda == 'true'
+    if not 0 <= args.relation_negative <= 1:
+        parser.error('--relation_negative must be between 0 and 1')
+
+    save_dir = 'trained_model/{}/link_prediction/dime{}dimr{}_lr{}_l2{}_{}/'.format(
+        args.data_name, args.embed_dim, args.relation_dim, args.lr, args.kg_l2loss_lambda, args.KG_embedding_type)
+    args.save_dir = args.save_dir or save_dir
+
+    return args

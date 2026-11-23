@@ -1,3 +1,11 @@
+import gzip
+import hashlib
+import heapq
+import json
+import re
+from collections import Counter
+from pathlib import Path
+
 import os
 import random
 import collections
@@ -56,22 +64,8 @@ class DataLoaderBase(object):
         为head采样正样本。
 
         """
-        pos_triples = kg_dict[head]
-        n_pos_triples = len(pos_triples)
-
-        sample_relations, sample_pos_tails = [], []
-        while True:
-            if len(sample_relations) == n_sample_pos_triples:
-                break
-
-            pos_triple_idx = random.randrange(n_pos_triples)
-            tail = pos_triples[pos_triple_idx][0]
-            relation = pos_triples[pos_triple_idx][1]
-
-            if relation not in sample_relations and tail not in sample_pos_tails:
-                sample_relations.append(relation)
-                sample_pos_tails.append(tail)
-        return sample_relations, sample_pos_tails
+        pairs = random.sample(kg_dict[head], n_sample_pos_triples)
+        return [r for t, r in pairs], [t for t, r in pairs]
 
     def sample_neg_triples_for_h(self, kg_dict, head, relation,
                                  n_sample_neg_triples, highest_neg_idx):
@@ -81,9 +75,14 @@ class DataLoaderBase(object):
             positives = {t for t, r in kg_dict[head] if r == relation}
         if n_sample_neg_triples > highest_neg_idx - len(positives):
             raise ValueError("Insufficient distinct negative tails")
+        pool = self.relation_tails.get(relation, ()) if kg_dict is getattr(self, 'kg_dict', None) else ()
         sampled = []
         while len(sampled) < n_sample_neg_triples:
             tail = random.randrange(highest_neg_idx)
+            if pool and random.random() < self.args.relation_negative:
+                candidate = random.choice(pool)
+                if candidate < highest_neg_idx and candidate not in positives and candidate not in sampled:
+                    tail = candidate
             if tail not in positives and tail not in sampled:
                 sampled.append(tail)
         return sampled
@@ -156,7 +155,6 @@ class DataLoader(DataLoaderBase):
         kg_train = self.kg_train_data
         self.n_kg_train = len(kg_train)
 
-        from copy import deepcopy
         reverse_kg_data = deepcopy(kg_train)
         reverse_kg_data['h'], reverse_kg_data['t'] = reverse_kg_data['t'], reverse_kg_data['h']
         reverse_kg_data['r'] = reverse_kg_data['r'] + n_relations_origin
@@ -171,19 +169,18 @@ class DataLoader(DataLoaderBase):
         self.n_kg_valid = len(self.kg_valid_data)
         self.n_kg_test = len(self.kg_test_data)
 
-        import collections
         self.kg_dict = collections.defaultdict(list)
         self.relation_dict = collections.defaultdict(list)
 
         self.positive_tails = collections.defaultdict(set)
-        for _, row in self.kg_data.iterrows():
-            h = int(row['h'])
-            r = int(row['r'])
-            t = int(row['t'])
+        for h, r, t in self.kg_data.itertuples(index=False, name=None):
             self.kg_dict[h].append((t, r))
             self.positive_tails[h, r].add(t)
             self.relation_dict[r].append((h, t))
 
+
+        self.relation_tails = {r: sorted({t for _, t in pairs})
+                               for r, pairs in self.relation_dict.items()}
 
     def print_info(self, logging=None):
         if logging:
@@ -200,3 +197,80 @@ class DataLoader(DataLoaderBase):
             print('n_kg_valid:   %d' % self.n_kg_valid)
             print('n_kg_test:    %d' % self.n_kg_test)
             print('n_kg_data(含反向): %d' % self.n_kg_data)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SEED = 2026
+MOVIES = 1600
+NS = rb"<http://rdf\.freebase\.com/ns/"
+MID = rb"([mg]\.[A-Za-z0-9_]+)>"
+FILM_EDGE = re.compile(b"^" + NS + MID + rb"\t" + NS + rb"(film\.film\.[^>]+)>\t" + NS + MID + rb"\t\.[\r]?$", re.M)
+
+
+def sample_movies(path):
+    # 保留哈希值最小的电影；阈值只会下降，最终入选电影的早期边也被完整保留。
+    selected, heap = {}, []
+    with gzip.open(path, "rb") as stream:
+        while chunk := stream.read(8 << 20):
+            chunk += stream.readline()
+            for match in FILM_EDGE.finditer(chunk):
+                head, relation, tail = match.groups()
+                if head not in selected:
+                    digest = hashlib.blake2b(head, key=str(SEED).encode(), digest_size=16).digest()
+                    priority = int.from_bytes(digest, "big")
+                    if len(heap) == MOVIES:
+                        if priority >= -heap[0][0]:
+                            continue
+                        del selected[heapq.heappop(heap)[1]]
+                    heapq.heappush(heap, (-priority, head))
+                    selected[head] = set()
+                selected[head].add((relation, tail))
+    return sorted((h.decode(), r.decode(), t.decode())
+                  for h, edges in selected.items() for r, t in edges)
+
+
+def prepare_data():
+    triples = sample_movies(ROOT / "data/raw/freebase_douban.gz")
+    entities = sorted({v for h, _, t in triples for v in (h, t)})
+    relations = sorted({r for _, r, _ in triples})
+    if len(entities) < 3000:
+        raise ValueError("电影子图实体不足 3000")
+    output = ROOT / "data/freebase"
+    output.mkdir(parents=True, exist_ok=True)
+    metadata = ROOT / "data/metadata"
+    metadata.mkdir(parents=True, exist_ok=True)
+    for filename, values in [("entities", entities), ("relations", relations)]:
+        (metadata / f"{filename}.txt").write_text(
+            "".join(f"{i} {v}\n" for i, v in enumerate(values)), encoding="utf-8")
+    eid = {v: i for i, v in enumerate(entities)}
+    rid = {v: i for i, v in enumerate(relations)}
+    rows = [(eid[h], rid[r], eid[t]) for h, r, t in triples]
+    random.Random(SEED).shuffle(rows)
+    # 仅在训练集仍覆盖每个实体和关系时留出该边。
+    counts = Counter(v for h, _, t in rows for v in {h, t})
+    rel_counts = Counter(r for _, r, _ in rows)
+    train, held = [], []
+    per_split = len(rows) // 10
+    for h, r, t in rows:
+        endpoints = {h, t}
+        if len(held) < 2 * per_split and min(counts[v] for v in endpoints) > 1 and rel_counts[r] > 1:
+            held.append((h, r, t))
+            counts.subtract(endpoints)
+            rel_counts[r] -= 1
+        else:
+            train.append((h, r, t))
+    if len(held) != 2 * per_split:
+        raise ValueError("无法在保持训练集覆盖率时完成划分")
+    random.Random(SEED + 1).shuffle(held)
+    splits = dict(train=train, valid=held[:per_split], test=held[per_split:])
+    for name, split in splits.items():
+        (output / f"{name}.txt").write_text(
+            "".join(f"{h} {r} {t}\n" for h, r, t in split), encoding="utf-8")
+    stats = dict(seed=SEED, films=len({h for h, _, _ in triples}), entities=len(eid),
+                 relations=len(rid), triples=len(rows), splits={k: len(v) for k, v in splits.items()})
+    print(json.dumps(stats))
+
+
+
+if __name__ == "__main__":
+    prepare_data()

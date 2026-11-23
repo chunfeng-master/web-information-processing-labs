@@ -237,11 +237,6 @@ def prepare_data():
         raise ValueError("电影子图实体不足 3000")
     output = ROOT / "data/freebase"
     output.mkdir(parents=True, exist_ok=True)
-    metadata = ROOT / "data/metadata"
-    metadata.mkdir(parents=True, exist_ok=True)
-    for filename, values in [("entities", entities), ("relations", relations)]:
-        (metadata / f"{filename}.txt").write_text(
-            "".join(f"{i} {v}\n" for i, v in enumerate(values)), encoding="utf-8")
     eid = {v: i for i, v in enumerate(entities)}
     rid = {v: i for i, v in enumerate(relations)}
     rows = [(eid[h], rid[r], eid[t]) for h, r, t in triples]

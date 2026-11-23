@@ -36,6 +36,6 @@
 
 ### 运行方法
 
-仓库已包含[训练、验证和测试数据](./lab2/data/freebase/)及[实体和关系编号表](./lab2/data/metadata/)。从 `lab2/` 目录运行 `python -B framework/main_kg.py` 即可开始训练。依赖版本、加载最佳权重和复现两组测试结果的命令见[报告中的运行方法](./lab2/docs/实验二实验报告.md#运行方法)。
+仓库已包含[训练、验证和测试数据](./lab2/data/freebase/)。从 `lab2/` 目录运行 `python -B framework/main_kg.py` 即可开始训练。依赖版本、加载最佳权重和复现两组测试结果的命令见[报告中的运行方法](./lab2/docs/实验二实验报告.md#运行方法)。
 
 如需重新抽取子图，将课程原始文件放到 `lab2/data/raw/freebase_douban.gz`，再从 `lab2/` 运行 `python -B framework/loader_kg.py`。
